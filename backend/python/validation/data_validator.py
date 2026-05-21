@@ -2,14 +2,16 @@
 Data Validation Scripts
 =======================
 Comprehensive data quality validation for staging tables and fact tables.
-Includes completeness, accuracy, consistency, and business logic checks.
+Includes completeness, accuracy, consistency, business logic checks,
+duplicate detection, null validation, and audit logging.
 """
 
 import logging
 from datetime import date, datetime, timedelta
-from typing import List, Dict, Optional, Tuple, Any
-from dataclasses import dataclass
+from typing import List, Dict, Optional, Tuple, Any, Set
+from dataclasses import dataclass, field
 from enum import Enum
+from collections import defaultdict
 
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
@@ -33,6 +35,40 @@ class ValidationStatus(str, Enum):
 
 
 @dataclass
+class ValidationAudit:
+    """Audit log for validation activities."""
+    check_id: str
+    check_name: str
+    table_name: str
+    status: ValidationStatus
+    executed_at: datetime
+    total_records_checked: int
+    records_failed: int
+    records_passed: int
+    failure_details: str
+    user_id: str = "system"
+    execution_duration_seconds: float = 0.0
+    error_message: Optional[str] = None
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for logging."""
+        return {
+            "check_id": self.check_id,
+            "check_name": self.check_name,
+            "table_name": self.table_name,
+            "status": self.status.value,
+            "executed_at": self.executed_at.isoformat(),
+            "total_records_checked": self.total_records_checked,
+            "records_failed": self.records_failed,
+            "records_passed": self.records_passed,
+            "failure_details": self.failure_details,
+            "user_id": self.user_id,
+            "execution_duration_seconds": self.execution_duration_seconds,
+            "error_message": self.error_message
+        }
+
+
+@dataclass
 class ValidationResult:
     """Result of a validation check."""
     check_name: str
@@ -44,6 +80,9 @@ class ValidationResult:
     validation_percent: float
     details: str
     failed_records: List[Any] = None
+    audit_log: Optional[ValidationAudit] = None
+    duplicate_ids: List[Any] = field(default_factory=list)
+    null_field_counts: Dict[str, int] = field(default_factory=dict)
     
     def __post_init__(self):
         if self.failed_records is None:
@@ -60,6 +99,8 @@ class BaseValidator:
         self.load_date = load_date or date.today()
         self.session = get_db_session()
         self.results: List[ValidationResult] = []
+        self.audit_logs: List[ValidationAudit] = []
+        self.check_counter = 0
 
     def __enter__(self):
         return self
@@ -69,10 +110,59 @@ class BaseValidator:
             self.session.close()
 
     def add_result(self, result: ValidationResult):
-        """Add validation result."""
+        """Add validation result with audit logging."""
         self.results.append(result)
         log_level = logging.WARNING if result.status == ValidationStatus.FAIL else logging.INFO
         logger.log(log_level, str(result))
+        
+        # Create audit log entry
+        if result.audit_log:
+            self.audit_logs.append(result.audit_log)
+            self._log_audit_entry(result.audit_log)
+
+    def _log_audit_entry(self, audit: ValidationAudit):
+        """Log validation audit entry to ETL logs."""
+        try:
+            etl_log = ETLLog(
+                process_name="data_validator",
+                process_step=f"{audit.check_name}",
+                record_count=audit.total_records_checked,
+                status=audit.status,
+                log_date=self.load_date,
+                details=audit.to_dict()
+            )
+            self.session.add(etl_log)
+            self.session.commit()
+            logger.info(f"Audit logged: {audit.check_name} - {audit.status}")
+        except Exception as e:
+            logger.error(f"Failed to log audit: {e}")
+            self.session.rollback()
+
+    def create_audit_log(
+        self,
+        check_name: str,
+        table_name: str,
+        status: ValidationStatus,
+        total_records: int,
+        failed_records: int,
+        details: str,
+        duration: float = 0.0
+    ) -> ValidationAudit:
+        """Create validation audit log."""
+        self.check_counter += 1
+        audit = ValidationAudit(
+            check_id=f"CHK_{self.load_date}_{self.check_counter:04d}",
+            check_name=check_name,
+            table_name=table_name,
+            status=status,
+            executed_at=datetime.now(),
+            total_records_checked=total_records,
+            records_failed=failed_records,
+            records_passed=total_records - failed_records,
+            failure_details=details,
+            execution_duration_seconds=duration
+        )
+        return audit
 
     def get_summary(self) -> Dict[str, Any]:
         """Get validation summary."""
@@ -89,7 +179,8 @@ class BaseValidator:
             "warned": warned,
             "failed": failed,
             "average_validity_percent": avg_validity,
-            "overall_status": ValidationStatus.FAIL if failed > 0 else (ValidationStatus.WARNING if warned > 0 else ValidationStatus.PASS)
+            "overall_status": ValidationStatus.FAIL if failed > 0 else (ValidationStatus.WARNING if warned > 0 else ValidationStatus.PASS),
+            "audit_logs_count": len(self.audit_logs)
         }
 
 
@@ -434,6 +525,199 @@ class BusinessLogicValidator(BaseValidator):
         ))
 
 
+class NullValidator(BaseValidator):
+    """Validate null fields in staging and fact tables."""
+    
+    REQUIRED_FIELDS = {
+        'stg_orders_conformed': [
+            'order_id', 'customer_business_key', 'product_sku',
+            'order_date', 'order_quantity', 'net_amount'
+        ],
+        'stg_customers_conformed': [
+            'customer_id', 'customer_name', 'customer_type'
+        ],
+        'stg_opportunities_conformed': [
+            'opportunity_id', 'customer_id', 'opportunity_amount'
+        ],
+        'stg_inventory_conformed': [
+            'warehouse_id', 'product_sku', 'closing_quantity'
+        ],
+        'fact_sales': [
+            'customer_key', 'product_key', 'order_date', 'net_amount'
+        ]
+    }
+    
+    def validate_null_fields(self, table_name: str, model_class: Any) -> None:
+        """Validate null fields in specified table."""
+        start_time = datetime.now()
+        
+        query = self.session.query(model_class)
+        if hasattr(model_class, 'source_load_date'):
+            query = query.filter(model_class.source_load_date == self.load_date)
+        elif hasattr(model_class, 'load_date'):
+            query = query.filter(model_class.load_date == self.load_date)
+        
+        total = query.count()
+        if total == 0:
+            return
+        
+        required_fields = self.REQUIRED_FIELDS.get(table_name, [])
+        null_field_counts = defaultdict(int)
+        
+        for field_name in required_fields:
+            if hasattr(model_class, field_name):
+                field = getattr(model_class, field_name)
+                null_count = query.filter(field.is_(None)).count()
+                if null_count > 0:
+                    null_field_counts[field_name] = null_count
+        
+        # Calculate valid records (no nulls in required fields)
+        valid = total - len([count for count in null_field_counts.values() if count > 0])
+        invalid = total - valid
+        percent = (valid / total * 100) if total > 0 else 0
+        
+        status = ValidationStatus.PASS if percent >= 99 else (ValidationStatus.WARNING if percent >= 95 else ValidationStatus.FAIL)
+        
+        duration = (datetime.now() - start_time).total_seconds()
+        audit_log = self.create_audit_log(
+            check_name=f"Null Validation - {table_name}",
+            table_name=table_name,
+            status=status,
+            total_records=total,
+            failed_records=invalid,
+            details=f"Null fields found: {dict(null_field_counts)}",
+            duration=duration
+        )
+        
+        result = ValidationResult(
+            check_name=f"Null Field Validation",
+            table_name=table_name,
+            status=status,
+            total_records=total,
+            valid_records=valid,
+            invalid_records=invalid,
+            validation_percent=percent,
+            details=f"{valid}/{total} records have no null required fields. Nulls: {dict(null_field_counts)}",
+            audit_log=audit_log,
+            null_field_counts=dict(null_field_counts)
+        )
+        self.add_result(result)
+    
+    def validate_all_tables(self) -> None:
+        """Validate null fields across all staging tables."""
+        logger.info("Starting null field validation")
+        
+        # Validate staging tables
+        self.validate_null_fields('stg_orders_conformed', StagingOrdersConformed)
+        self.validate_null_fields('stg_customers_conformed', StagingCustomersConformed)
+        self.validate_null_fields('stg_opportunities_conformed', StagingOpportunitiesConformed)
+        self.validate_null_fields('stg_inventory_conformed', StagingInventoryConformed)
+        
+        # Validate fact tables
+        self.validate_null_fields('fact_sales', FactSales)
+        
+        logger.info(f"Null validation complete: {len(self.results)} checks")
+
+
+class DuplicateValidator(BaseValidator):
+    """Validate for duplicate records using business keys."""
+    
+    # Business keys for duplicate detection
+    BUSINESS_KEYS = {
+        'stg_orders_conformed': ['order_id', 'order_date'],
+        'stg_customers_conformed': ['customer_id'],
+        'stg_opportunities_conformed': ['opportunity_id'],
+        'stg_inventory_conformed': ['warehouse_id', 'product_sku'],
+    }
+    
+    def validate_duplicates_by_keys(
+        self,
+        table_name: str,
+        model_class: Any,
+        key_fields: List[str]
+    ) -> None:
+        """Validate for duplicate records based on business keys."""
+        start_time = datetime.now()
+        
+        query = self.session.query(model_class)
+        if hasattr(model_class, 'source_load_date'):
+            query = query.filter(model_class.source_load_date == self.load_date)
+        elif hasattr(model_class, 'load_date'):
+            query = query.filter(model_class.load_date == self.load_date)
+        
+        total = query.count()
+        if total == 0:
+            return
+        
+        # Get all records
+        records = query.all()
+        seen_keys: Dict[Tuple, List[Any]] = defaultdict(list)
+        duplicate_ids = []
+        
+        for record in records:
+            # Create composite key tuple
+            key_values = tuple(getattr(record, key, None) for key in key_fields)
+            seen_keys[key_values].append(record)
+        
+        # Find duplicates
+        duplicate_count = 0
+        for key_values, key_records in seen_keys.items():
+            if len(key_records) > 1:
+                duplicate_count += len(key_records) - 1  # All but first
+                for rec in key_records[1:]:
+                    duplicate_ids.append(getattr(rec, 'id', str(key_values)))
+        
+        valid = total - duplicate_count
+        percent = (valid / total * 100) if total > 0 else 0
+        
+        status = ValidationStatus.PASS if duplicate_count == 0 else (
+            ValidationStatus.WARNING if percent >= 95 else ValidationStatus.FAIL
+        )
+        
+        duration = (datetime.now() - start_time).total_seconds()
+        audit_log = self.create_audit_log(
+            check_name=f"Duplicate Check - {table_name}",
+            table_name=table_name,
+            status=status,
+            total_records=total,
+            failed_records=duplicate_count,
+            details=f"Duplicates found on keys: {key_fields}",
+            duration=duration
+        )
+        
+        result = ValidationResult(
+            check_name=f"Duplicate Records",
+            table_name=table_name,
+            status=status,
+            total_records=total,
+            valid_records=valid,
+            invalid_records=duplicate_count,
+            validation_percent=percent,
+            details=f"{duplicate_count} duplicate records found on keys {key_fields}",
+            audit_log=audit_log,
+            duplicate_ids=duplicate_ids
+        )
+        self.add_result(result)
+    
+    def validate_all_tables(self) -> None:
+        """Validate duplicates across all staging tables."""
+        logger.info("Starting duplicate validation")
+        
+        for table_name, key_fields in self.BUSINESS_KEYS.items():
+            model_mapping = {
+                'stg_orders_conformed': StagingOrdersConformed,
+                'stg_customers_conformed': StagingCustomersConformed,
+                'stg_opportunities_conformed': StagingOpportunitiesConformed,
+                'stg_inventory_conformed': StagingInventoryConformed,
+            }
+            
+            model_class = model_mapping.get(table_name)
+            if model_class:
+                self.validate_duplicates_by_keys(table_name, model_class, key_fields)
+        
+        logger.info(f"Duplicate validation complete: {len(self.results)} checks")
+
+
 class MasterValidator:
     """Orchestrate all validation tasks."""
     
@@ -468,6 +752,16 @@ class MasterValidator:
             validator.validate_margin_calculations()
             all_results.extend(validator.results)
         
+        # Null field validations
+        with NullValidator(self.load_date) as validator:
+            validator.validate_all_tables()
+            all_results.extend(validator.results)
+        
+        # Duplicate record validations
+        with DuplicateValidator(self.load_date) as validator:
+            validator.validate_all_tables()
+            all_results.extend(validator.results)
+        
         # Calculate DQ score
         total_checks = len(all_results)
         passed_checks = sum(1 for r in all_results if r.status == ValidationStatus.PASS)
@@ -483,7 +777,7 @@ class MasterValidator:
         else:
             grade = "Poor"
         
-        # Log DQ score
+        # Log DQ score and validation summary
         session = get_db_session()
         try:
             dq_score = DataQualityScore(
@@ -500,6 +794,26 @@ class MasterValidator:
             session.commit()
             
             self.logger.info(f"DQ Score: {avg_validity:.2f}% ({grade})")
+            
+            # Log detailed validation summary
+            self.logger.info(f"Validation Results:")
+            self.logger.info(f"  Total Checks: {total_checks}")
+            self.logger.info(f"  Passed: {passed_checks}")
+            self.logger.info(f"  Failed: {sum(1 for r in all_results if r.status == ValidationStatus.FAIL)}")
+            self.logger.info(f"  Warnings: {sum(1 for r in all_results if r.status == ValidationStatus.WARNING)}")
+            
+            # Log checks by category
+            staging_checks = sum(1 for r in all_results if 'stg_' in r.table_name)
+            fact_checks = sum(1 for r in all_results if 'fact_' in r.table_name)
+            null_checks = sum(1 for r in all_results if 'Null' in r.check_name)
+            dup_checks = sum(1 for r in all_results if 'Duplicate' in r.check_name)
+            
+            self.logger.info(f"Validation Breakdown:")
+            self.logger.info(f"  Staging Checks: {staging_checks}")
+            self.logger.info(f"  Fact Checks: {fact_checks}")
+            self.logger.info(f"  Null Validations: {null_checks}")
+            self.logger.info(f"  Duplicate Checks: {dup_checks}")
+            
         finally:
             session.close()
         
@@ -511,7 +825,9 @@ class MasterValidator:
             valid_records=passed_checks,
             invalid_records=total_checks - passed_checks,
             validation_percent=avg_validity,
-            details=f"{passed_checks}/{total_checks} checks passed | Grade: {grade}"
+            details=f"{passed_checks}/{total_checks} checks passed | Grade: {grade} | "
+                   f"Staging: {staging_checks} | Fact: {fact_checks} | "
+                   f"Null: {null_checks} | Duplicate: {dup_checks}"
         )
 
 
