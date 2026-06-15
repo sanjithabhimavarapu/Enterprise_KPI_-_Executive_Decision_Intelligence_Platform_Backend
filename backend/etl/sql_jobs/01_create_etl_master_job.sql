@@ -49,7 +49,7 @@ EXEC @ReturnCode = sp_add_jobstep
     @retry_interval = 5,     -- 5 minutes between retries
     @os_run_priority = 0,
     @subsystem = N'TSQL',
-    @database_name = N'Enterprise_KPI_DW',
+    @database_name = N'KPI_DataWarehouse',
     @command = N'
         DECLARE @ProcessDate DATE = CAST(GETDATE() AS DATE);
         DECLARE @ErrorNumber INT;
@@ -99,7 +99,7 @@ EXEC @ReturnCode = sp_add_jobstep
     @retry_interval = 5,
     @os_run_priority = 0,
     @subsystem = N'TSQL',
-    @database_name = N'Enterprise_KPI_DW',
+    @database_name = N'KPI_DataWarehouse',
     @command = N'
         DECLARE @ProcessDate DATE = CAST(GETDATE() AS DATE);
         
@@ -136,7 +136,7 @@ EXEC @ReturnCode = sp_add_jobstep
     @retry_interval = 5,
     @os_run_priority = 0,
     @subsystem = N'TSQL',
-    @database_name = N'Enterprise_KPI_DW',
+    @database_name = N'KPI_DataWarehouse',
     @command = N'
         DECLARE @ProcessDate DATE = CAST(GETDATE() AS DATE);
         

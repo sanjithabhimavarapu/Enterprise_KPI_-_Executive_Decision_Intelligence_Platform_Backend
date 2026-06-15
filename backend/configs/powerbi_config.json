@@ -1,0 +1,273 @@
+{
+  "powerbi_configuration": {
+    "version": "1.0",
+    "description": "Power BI Integration Configuration for Enterprise KPI Platform",
+    "last_updated": "2026-06-16",
+    
+    "database_connection": {
+      "connection_type": "SQL Server",
+      "provider": "MSOLEDBSQL",
+      "server": "your_server.database.windows.net",
+      "port": 1433,
+      "database": "KPI_DataWarehouse",
+      "authentication": "SQL Server or Azure AD",
+      "encryption": true,
+      "trust_certificate": false,
+      "timeout_seconds": 30,
+      
+      "connection_strings": {
+        "azure_sql": "Provider=MSOLEDBSQL;Server=tcp:your_server.database.windows.net,1433;Database=KPI_DataWarehouse;Uid=your_username;Pwd=your_password;Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;",
+        "local_sql": "Server=.\\SQLEXPRESS;Database=KPI_DataWarehouse;Trusted_Connection=yes;",
+        "remote_sql": "Server=your_server,1433;Database=KPI_DataWarehouse;User Id=your_username;Password=your_password;Encrypt=true;TrustServerCertificate=false;"
+      }
+    },
+    
+    "recommended_views": [
+      {
+        "name": "vw_daily_financial_summary",
+        "purpose": "Daily financial metrics (revenue, profit, margin)",
+        "grain": "Daily",
+        "refresh_frequency": "Daily",
+        "recommended_for": ["Executive Dashboard", "Financial Reports"],
+        "key_columns": ["date_value", "daily_revenue", "net_revenue", "gross_profit", "gross_margin_pct"]
+      },
+      {
+        "name": "vw_monthly_financial_segment_summary",
+        "purpose": "Monthly financials segmented by customer type",
+        "grain": "Monthly/Segment",
+        "refresh_frequency": "Daily",
+        "recommended_for": ["Segment Analysis", "Performance Comparison"],
+        "key_columns": ["year", "month", "customer_segment", "month_revenue", "gross_margin_pct", "unique_customers"]
+      },
+      {
+        "name": "vw_employee_sales_performance",
+        "purpose": "Sales team performance metrics",
+        "grain": "Monthly/Employee",
+        "refresh_frequency": "Daily",
+        "recommended_for": ["Sales Leaderboard", "Performance Tracking"],
+        "key_columns": ["employee_name", "department", "total_sales", "total_profit", "profit_margin_pct"]
+      },
+      {
+        "name": "vw_executive_kpi_dashboard",
+        "purpose": "Executive summary with KPI targets and achievement",
+        "grain": "Daily",
+        "refresh_frequency": "Daily",
+        "recommended_for": ["Executive Dashboard", "KPI Tracking"],
+        "key_columns": ["kpi_name", "actual_value", "target_value", "achievement_pct", "status"]
+      },
+      {
+        "name": "vw_financial_kpi_optimized",
+        "purpose": "Optimized financial KPI calculations",
+        "grain": "Daily",
+        "refresh_frequency": "Daily",
+        "recommended_for": ["Financial Analytics", "Trend Analysis"],
+        "key_columns": ["date_value", "revenue", "profit", "margin", "roi"]
+      },
+      {
+        "name": "vw_customer_revenue_analysis",
+        "purpose": "Customer profitability and lifetime value",
+        "grain": "Monthly/Customer",
+        "refresh_frequency": "Daily",
+        "recommended_for": ["Customer Analytics", "Segment Performance"],
+        "key_columns": ["customer_name", "customer_segment", "total_revenue", "ltv", "churn_risk"]
+      },
+      {
+        "name": "vw_inventory_kpi_summary",
+        "purpose": "Inventory health and turnover metrics",
+        "grain": "Daily",
+        "refresh_frequency": "Daily",
+        "recommended_for": ["Operational Dashboard", "Inventory Management"],
+        "key_columns": ["sku", "inventory_level", "turnover_ratio", "days_inventory_outstanding"]
+      },
+      {
+        "name": "vw_sla_operational_metrics",
+        "purpose": "Service level agreement compliance tracking",
+        "grain": "Daily",
+        "refresh_frequency": "Daily",
+        "recommended_for": ["Operational Dashboard", "SLA Monitoring"],
+        "key_columns": ["metric_date", "sla_target", "actual_value", "compliance_pct", "status"]
+      },
+      {
+        "name": "vw_recent_orchestrations",
+        "purpose": "ETL pipeline execution status and health",
+        "grain": "Execution-level",
+        "refresh_frequency": "Real-time (hourly)",
+        "recommended_for": ["Data Quality Dashboard", "Pipeline Monitoring"],
+        "key_columns": ["execution_id", "pipeline_name", "status", "start_time", "duration", "record_count"]
+      },
+      {
+        "name": "vw_data_quality_summary",
+        "purpose": "Data validation results and quality metrics",
+        "grain": "Daily",
+        "refresh_frequency": "Daily",
+        "recommended_for": ["Data Quality Dashboard", "Validation Reports"],
+        "key_columns": ["validation_date", "table_name", "validation_rule", "pass_count", "fail_count", "pass_rate"]
+      }
+    ],
+    
+    "refresh_schedule": {
+      "recommended_frequency": "Daily",
+      "recommended_time": "03:00 AM",
+      "rationale": "1 hour after ETL completion (02:00 AM)",
+      "minimum_frequency": "Every 6 hours",
+      "schedule_options": [
+        {
+          "frequency": "Daily",
+          "time": "03:00 AM",
+          "best_for": ["Executive Reports", "Daily KPIs"]
+        },
+        {
+          "frequency": "Every 6 hours",
+          "times": ["03:00 AM", "09:00 AM", "03:00 PM", "09:00 PM"],
+          "best_for": ["Operational Metrics", "Real-time Monitoring"]
+        },
+        {
+          "frequency": "Monthly",
+          "time": "04:00 AM, 1st of month",
+          "best_for": ["Monthly Reports", "Archive Data"]
+        }
+      ]
+    },
+    
+    "dashboard_templates": {
+      "executive_dashboard": {
+        "name": "Executive KPI Dashboard",
+        "key_visuals": [
+          {
+            "type": "Card",
+            "title": "Revenue (MTD)",
+            "source": "vw_executive_kpi_dashboard",
+            "measure": "actual_value",
+            "filter": "kpi_name = 'Revenue'"
+          },
+          {
+            "type": "Card",
+            "title": "Profit (MTD)",
+            "source": "vw_executive_kpi_dashboard",
+            "measure": "actual_value",
+            "filter": "kpi_name = 'Profit'"
+          },
+          {
+            "type": "Line Chart",
+            "title": "Revenue Trend (Last 90 Days)",
+            "source": "vw_daily_financial_summary",
+            "x_axis": "date_value",
+            "y_axis": "daily_revenue"
+          },
+          {
+            "type": "Stacked Column Chart",
+            "title": "Monthly Profitability by Segment",
+            "source": "vw_monthly_financial_segment_summary",
+            "x_axis": "month_name",
+            "y_axis": ["month_revenue", "gross_profit"],
+            "legend": "customer_segment"
+          }
+        ]
+      },
+      "operational_dashboard": {
+        "name": "Operational Metrics Dashboard",
+        "key_visuals": [
+          {
+            "type": "Table",
+            "title": "Top Sales Performers",
+            "source": "vw_employee_sales_performance",
+            "columns": ["employee_name", "department", "total_sales", "profit_margin_pct"],
+            "sort_by": "total_sales",
+            "top": 10
+          },
+          {
+            "type": "Card",
+            "title": "SLA Compliance %",
+            "source": "vw_sla_operational_metrics",
+            "measure": "compliance_pct"
+          },
+          {
+            "type": "Gauge",
+            "title": "Inventory Turnover",
+            "source": "vw_inventory_kpi_summary",
+            "measure": "turnover_ratio",
+            "min": 0,
+            "max": 10
+          }
+        ]
+      },
+      "data_quality_dashboard": {
+        "name": "Data Quality & Pipeline Dashboard",
+        "key_visuals": [
+          {
+            "type": "Card",
+            "title": "Last ETL Status",
+            "source": "vw_recent_orchestrations",
+            "measure": "status"
+          },
+          {
+            "type": "Line Chart",
+            "title": "Pipeline Execution Trend",
+            "source": "vw_recent_orchestrations",
+            "x_axis": "log_date",
+            "y_axis": "duration"
+          },
+          {
+            "type": "Table",
+            "title": "Data Quality Summary",
+            "source": "vw_data_quality_summary",
+            "columns": ["validation_date", "table_name", "pass_rate", "status"]
+          }
+        ]
+      }
+    },
+    
+    "sample_dax_measures": [
+      {
+        "name": "Total Revenue",
+        "dax": "SUMX(vw_daily_financial_summary, [daily_revenue])",
+        "format": "Currency"
+      },
+      {
+        "name": "Average Margin %",
+        "dax": "AVERAGEX(vw_daily_financial_summary, [gross_margin_pct])",
+        "format": "Percentage"
+      },
+      {
+        "name": "YoY Revenue Growth",
+        "dax": "DIVIDE([Total Revenue Current Year], [Total Revenue Prior Year], 0) - 1",
+        "format": "Percentage"
+      },
+      {
+        "name": "Top Customer Revenue",
+        "dax": "MAXX(VALUES(vw_customer_revenue_analysis[customer_name]), [customer_revenue])",
+        "format": "Currency"
+      }
+    ],
+    
+    "performance_settings": {
+      "max_dataset_size_mb": 1000,
+      "recommended_refresh_duration_minutes": 30,
+      "max_query_timeout_seconds": 120,
+      "enable_query_folding": true,
+      "use_incremental_refresh": true,
+      "incremental_refresh_threshold_rows": 100000000
+    },
+    
+    "security": {
+      "enable_rls": true,
+      "rls_roles": [
+        {
+          "role_name": "Executive",
+          "description": "View all data across organization",
+          "dax_filter": "TRUE()"
+        },
+        {
+          "role_name": "Manager",
+          "description": "View own department and direct reports",
+          "dax_filter": "[Department] = USERNAME()"
+        },
+        {
+          "role_name": "Analyst",
+          "description": "View assigned segments only",
+          "dax_filter": "[Customer_Segment] IN (\"Enterprise\", \"Mid-Market\")"
+        }
+      ]
+    }
+  }
+}

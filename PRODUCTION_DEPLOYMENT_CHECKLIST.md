@@ -262,11 +262,18 @@
   - [ ] Add reconciliation widgets
   - [ ] Add validation widgets
   - [ ] Add audit widgets
-- [ ] Or set up Power BI connection (if using Power BI)
-  - [ ] Create data source
-  - [ ] Import sample queries
-  - [ ] Create reports
-  - [ ] Share with team
+- [x] Power BI connection documentation complete
+  - [x] Setup guide created: `backend/documentation/POWER_BI_SETUP_GUIDE.md`
+  - [x] Quick start guide: `backend/documentation/POWER_BI_QUICK_START.md`
+  - [x] Configuration template: `backend/configs/powerbi_config.json`
+  - [ ] Connect to database (follow POWER_BI_QUICK_START.md Step 1-3)
+  - [ ] Import recommended views (Step 3)
+  - [ ] Create executive dashboard (Step 5)
+  - [ ] Configure daily refresh at 03:00 AM (Step 7)
+  - [ ] Test data refresh from Power BI Service
+  - [ ] Set up Row-Level Security for user groups
+  - [ ] Share with stakeholders
+  - [ ] Document custom measures/calculations
 
 ### Step 3.4: Production Go-Live
 - [ ] Schedule maintenance window (e.g., Sunday 2-4 AM)

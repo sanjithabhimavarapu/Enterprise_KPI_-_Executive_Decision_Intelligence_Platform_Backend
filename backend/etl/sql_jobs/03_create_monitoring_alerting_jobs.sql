@@ -44,7 +44,7 @@ BEGIN
         @on_success_action = 1,
         @on_fail_action = 2,
         @subsystem = N'TSQL',
-        @database_name = N'Enterprise_KPI_DW',
+        @database_name = N'KPI_DataWarehouse',
         @command = N'
             DECLARE @HealthCheckTime DATETIME2 = GETDATE();
             DECLARE @FailedJobCount INT;
@@ -146,7 +146,7 @@ BEGIN
         @on_fail_action = 2,
         @retry_attempts = 1,
         @subsystem = N'TSQL',
-        @database_name = N'Enterprise_KPI_DW',
+        @database_name = N'KPI_DataWarehouse',
         @command = N'
             DECLARE @ValidationTime DATETIME2 = GETDATE();
             DECLARE @MaxFactDate DATE;
@@ -242,7 +242,7 @@ BEGIN
         @on_success_action = 3,
         @on_fail_action = 2,
         @subsystem = N'TSQL',
-        @database_name = N'Enterprise_KPI_DW',
+        @database_name = N'KPI_DataWarehouse',
         @command = N'
             DECLARE @MaintenanceTime DATETIME2 = GETDATE();
             DECLARE @ArchiveDate DATE = DATEADD(MONTH, -3, CAST(GETDATE() AS DATE));
@@ -280,7 +280,7 @@ BEGIN
         @on_success_action = 1,
         @on_fail_action = 2,
         @subsystem = N'TSQL',
-        @database_name = N'Enterprise_KPI_DW',
+        @database_name = N'KPI_DataWarehouse',
         @command = N'
             BEGIN TRY
                 -- Update statistics on staging tables

@@ -6,7 +6,7 @@
 -- Created: June 2024
 -- ============================================================
 
-USE Enterprise_KPI_DW;
+USE KPI_DataWarehouse;
 GO
 
 -- ============================================================
@@ -177,7 +177,7 @@ PRINT '1. First:  01_create_etl_master_job.sql';
 PRINT '2. Then:   02_create_incremental_load_jobs.sql';
 PRINT '3. Then:   03_create_monitoring_alerting_jobs.sql';
 PRINT '';
-PRINT 'After that, on the Enterprise_KPI_DW database:';
+PRINT 'After that, on the KPI_DataWarehouse database:';
 PRINT '4. Finally: 04_job_execution_monitoring.sql';
 PRINT '';
 
@@ -326,7 +326,7 @@ PRINT '========================================';
 PRINT '';
 PRINT 'Before running scheduled jobs:';
 PRINT '  [ ] Execute all 4 SQL job scripts (msdb database)';
-PRINT '  [ ] Execute monitoring script (Enterprise_KPI_DW database)';
+PRINT '  [ ] Execute monitoring script (KPI_DataWarehouse database)';
 PRINT '  [ ] Verify SQL Server Agent is running';
 PRINT '  [ ] Run manual test: EXEC sp_test_etl_pipeline';
 PRINT '  [ ] Check job creation: SELECT * FROM vw_etl_job_summary';

@@ -2,13 +2,13 @@
 # Backend data pipeline requirements
 
 # Database & ORM
-sqlalchemy==2.0.23
-pyodbc==4.0.39
-pymssql==2.2.8
+sqlalchemy>=2.0.23
+pyodbc>=5.0.0
+pymssql>=2.2.8
 
 # Data Processing
-pandas==2.1.3
-numpy==1.26.2
+pandas>=2.1.3
+numpy>=1.26.2
 
 # API & HTTP
 requests==2.31.0

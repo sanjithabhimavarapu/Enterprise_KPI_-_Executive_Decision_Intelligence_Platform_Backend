@@ -47,7 +47,7 @@ BEGIN
         @retry_attempts = 3,
         @retry_interval = 5,
         @subsystem = N'TSQL',
-        @database_name = N'Enterprise_KPI_DW',
+        @database_name = N'KPI_DataWarehouse',
         @command = N'
             DECLARE @LastLoadTime DATETIME2;
             DECLARE @CurrentLoadTime DATETIME2 = GETDATE();
@@ -146,7 +146,7 @@ BEGIN
         @retry_attempts = 3,
         @retry_interval = 5,
         @subsystem = N'TSQL',
-        @database_name = N'Enterprise_KPI_DW',
+        @database_name = N'KPI_DataWarehouse',
         @command = N'
             DECLARE @LastLoadTime DATETIME2;
             DECLARE @CurrentLoadTime DATETIME2 = GETDATE();
@@ -245,7 +245,7 @@ BEGIN
         @retry_attempts = 3,
         @retry_interval = 5,
         @subsystem = N'TSQL',
-        @database_name = N'Enterprise_KPI_DW',
+        @database_name = N'KPI_DataWarehouse',
         @command = N'
             DECLARE @LastLoadTime DATETIME2;
             DECLARE @CurrentLoadTime DATETIME2 = GETDATE();
