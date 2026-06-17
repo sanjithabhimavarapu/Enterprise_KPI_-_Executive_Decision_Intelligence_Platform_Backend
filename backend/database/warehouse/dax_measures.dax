@@ -1,0 +1,278 @@
+// ============================================================
+// Enterprise KPI Platform - DAX Measures for Power BI Desktop
+// ============================================================
+// HOW TO USE:
+//   1. Open Power BI Desktop
+//   2. Connect to KPI_DataWarehouse (SQL Server DirectQuery or Import)
+//   3. Go to Modeling tab → New Measure
+//   4. Paste each measure below into the formula bar
+//   5. Organize measures into a dedicated "KPI Measures" table
+// ============================================================
+
+
+// ── REVENUE MEASURES ─────────────────────────────────────────────────────────
+
+Total Revenue =
+SUM ( fact_financial_metrics[revenue_amount] )
+
+Total Cost =
+SUM ( fact_financial_metrics[cost_amount] )
+
+Gross Profit =
+[Total Revenue] - [Total Cost]
+
+Gross Margin % =
+DIVIDE ( [Gross Profit], [Total Revenue], 0 ) * 100
+
+Revenue Target =
+SUM ( fact_kpi_metrics[target_value] )
+
+Revenue Achievement % =
+DIVIDE ( [Total Revenue], [Revenue Target], 0 ) * 100
+
+Revenue MoM Growth % =
+VAR CurrentRevenue = [Total Revenue]
+VAR PriorRevenue =
+    CALCULATE (
+        [Total Revenue],
+        DATEADD ( dim_date[calendar_date], -1, MONTH )
+    )
+RETURN
+    DIVIDE ( CurrentRevenue - PriorRevenue, ABS ( PriorRevenue ), 0 ) * 100
+
+Revenue YoY Growth % =
+VAR CurrentRevenue = [Total Revenue]
+VAR PriorYearRevenue =
+    CALCULATE (
+        [Total Revenue],
+        DATEADD ( dim_date[calendar_date], -1, YEAR )
+    )
+RETURN
+    DIVIDE ( CurrentRevenue - PriorYearRevenue, ABS ( PriorYearRevenue ), 0 ) * 100
+
+Revenue YTD =
+TOTALYTD ( [Total Revenue], dim_date[calendar_date] )
+
+Revenue PYTD =
+CALCULATE (
+    TOTALYTD ( [Total Revenue], dim_date[calendar_date] ),
+    DATEADD ( dim_date[calendar_date], -1, YEAR )
+)
+
+Cumulative Revenue =
+CALCULATE (
+    [Total Revenue],
+    FILTER (
+        ALL ( dim_date ),
+        dim_date[calendar_date] <= MAX ( dim_date[calendar_date] )
+    )
+)
+
+
+// ── KPI HEALTH MEASURES ───────────────────────────────────────────────────────
+
+KPI Achievement % =
+DIVIDE (
+    SUM ( fact_kpi_metrics[actual_value] ),
+    SUM ( fact_kpi_metrics[target_value] ),
+    0
+) * 100
+
+KPI Status =
+VAR AchievementPct = [KPI Achievement %]
+RETURN
+    SWITCH (
+        TRUE (),
+        ISBLANK ( AchievementPct ),       "NO DATA",
+        AchievementPct >= 100,            "ON TARGET",
+        AchievementPct >= 90,             "AT RISK",
+        AchievementPct >= 75,             "BELOW TARGET",
+        "CRITICAL"
+    )
+
+KPIs On Target =
+CALCULATE (
+    DISTINCTCOUNT ( fact_kpi_metrics[kpi_name] ),
+    FILTER (
+        fact_kpi_metrics,
+        DIVIDE ( fact_kpi_metrics[actual_value], fact_kpi_metrics[target_value], 0 ) >= 1
+    )
+)
+
+KPIs At Risk =
+CALCULATE (
+    DISTINCTCOUNT ( fact_kpi_metrics[kpi_name] ),
+    FILTER (
+        fact_kpi_metrics,
+        VAR pct = DIVIDE ( fact_kpi_metrics[actual_value], fact_kpi_metrics[target_value], 0 )
+        RETURN pct >= 0.9 && pct < 1.0
+    )
+)
+
+KPIs Critical =
+CALCULATE (
+    DISTINCTCOUNT ( fact_kpi_metrics[kpi_name] ),
+    FILTER (
+        fact_kpi_metrics,
+        DIVIDE ( fact_kpi_metrics[actual_value], fact_kpi_metrics[target_value], 0 ) < 0.75
+    )
+)
+
+KPI Health Score =
+DIVIDE ( [KPIs On Target], [KPIs On Target] + [KPIs At Risk] + [KPIs Critical], 0 ) * 100
+
+
+// ── OPERATIONAL MEASURES ─────────────────────────────────────────────────────
+
+Order Fill Rate % =
+AVERAGE ( fact_operational_metrics[order_fill_rate] ) * 100
+
+On-Time Delivery % =
+AVERAGE ( fact_operational_metrics[on_time_delivery_flag] ) * 100
+
+Total Orders =
+COUNT ( fact_financial_metrics[order_key] )
+
+Avg Order Value =
+DIVIDE ( [Total Revenue], [Total Orders], 0 )
+
+Throughput (Units) =
+SUM ( fact_operational_metrics[units_processed] )
+
+Defect Rate % =
+DIVIDE (
+    SUM ( fact_operational_metrics[defect_count] ),
+    SUM ( fact_operational_metrics[units_processed] ),
+    0
+) * 100
+
+Operational Efficiency % =
+( [Order Fill Rate %] + [On-Time Delivery %] ) / 2
+
+
+// ── SLA MEASURES ─────────────────────────────────────────────────────────────
+
+SLA Compliance % =
+DIVIDE (
+    CALCULATE ( COUNT ( fact_sla_metrics[ticket_key] ),
+                fact_sla_metrics[sla_status] = "COMPLIANT" ),
+    COUNT ( fact_sla_metrics[ticket_key] ),
+    0
+) * 100
+
+SLA Breach Count =
+CALCULATE (
+    COUNT ( fact_sla_metrics[ticket_key] ),
+    fact_sla_metrics[sla_status] = "BREACHED"
+)
+
+SLA Breach Rate % =
+DIVIDE ( [SLA Breach Count], COUNT ( fact_sla_metrics[ticket_key] ), 0 ) * 100
+
+Avg Resolution Time (hrs) =
+AVERAGE ( fact_sla_metrics[resolution_time_minutes] ) / 60
+
+SLA Compliance MoM Change =
+VAR CurrentCompliance = [SLA Compliance %]
+VAR PriorCompliance =
+    CALCULATE (
+        [SLA Compliance %],
+        DATEADD ( dim_date[calendar_date], -1, MONTH )
+    )
+RETURN CurrentCompliance - PriorCompliance
+
+
+// ── CUSTOMER MEASURES ─────────────────────────────────────────────────────────
+
+Total Customers =
+DISTINCTCOUNT ( dim_customer[customer_key] )
+
+Active Customers =
+CALCULATE (
+    DISTINCTCOUNT ( fact_customer_metrics[customer_key] ),
+    fact_customer_metrics[customer_status] = "ACTIVE"
+)
+
+Churned Customers =
+CALCULATE (
+    DISTINCTCOUNT ( fact_customer_metrics[customer_key] ),
+    fact_customer_metrics[churn_flag] = 1
+)
+
+Churn Rate % =
+DIVIDE ( [Churned Customers], [Total Customers], 0 ) * 100
+
+Customer Retention % =
+100 - [Churn Rate %]
+
+Net Promoter Score =
+AVERAGE ( fact_customer_metrics[nps_score] )
+
+Avg Customer Lifetime Value =
+AVERAGE ( fact_customer_metrics[customer_lifetime_value] )
+
+New Customers This Period =
+CALCULATE (
+    DISTINCTCOUNT ( fact_customer_metrics[customer_key] ),
+    fact_customer_metrics[is_new_customer_flag] = 1
+)
+
+Revenue per Customer =
+DIVIDE ( [Total Revenue], [Active Customers], 0 )
+
+
+// ── DATA QUALITY MEASURES ─────────────────────────────────────────────────────
+
+Overall DQ Score =
+AVERAGE ( data_quality_scores[score_value] )
+
+DQ Completeness =
+CALCULATE (
+    AVERAGE ( data_quality_scores[score_value] ),
+    data_quality_scores[check_name] = "Completeness"
+)
+
+DQ Accuracy =
+CALCULATE (
+    AVERAGE ( data_quality_scores[score_value] ),
+    data_quality_scores[check_name] = "Accuracy"
+)
+
+Reconciliation Pass Rate % =
+DIVIDE (
+    CALCULATE ( COUNT ( reconciliation_logs[log_id] ),
+                reconciliation_logs[reconciliation_status] = "PASS" ),
+    COUNT ( reconciliation_logs[log_id] ),
+    0
+) * 100
+
+ETL Success Rate % =
+DIVIDE (
+    CALCULATE ( COUNT ( etl_logs[log_id] ),
+                etl_logs[status] = "SUCCESS" ),
+    COUNT ( etl_logs[log_id] ),
+    0
+) * 100
+
+
+// ── CONDITIONAL FORMATTING HELPERS ───────────────────────────────────────────
+// Use these as background or font colour measures in table/matrix visuals
+
+KPI Status Colour =
+SWITCH (
+    [KPI Status],
+    "ON TARGET",    "#107C10",
+    "AT RISK",      "#FFB900",
+    "BELOW TARGET", "#D13438",
+    "CRITICAL",     "#8B0000",
+    "#9E9E9E"
+)
+
+SLA Status Colour =
+SWITCH (
+    MAX ( fact_sla_metrics[sla_status] ),
+    "COMPLIANT", "#107C10",
+    "WARNING",   "#FFB900",
+    "BREACHED",  "#D13438",
+    "#9E9E9E"
+)

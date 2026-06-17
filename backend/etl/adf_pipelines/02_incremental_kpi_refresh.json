@@ -1,0 +1,166 @@
+{
+  "name": "PL_Incremental_KPI_Refresh",
+  "properties": {
+    "description": "Incremental KPI refresh pipeline. Runs every hour to update KPI metrics for the current business day without full ETL reload.",
+    "activities": [
+      {
+        "name": "ACT_Check_New_Data",
+        "type": "Lookup",
+        "dependsOn": [],
+        "policy": {
+          "timeout": "00:05:00",
+          "retry": 2,
+          "retryIntervalInSeconds": 30
+        },
+        "typeProperties": {
+          "source": {
+            "type": "SqlServerSource",
+            "sqlReaderQuery": "SELECT COUNT(*) AS NewRecordCount, MAX(modified_date) AS LastModifiedDate FROM stg.erp_orders_raw WHERE load_timestamp > DATEADD(HOUR, -1, GETUTCDATE())",
+            "queryTimeout": "00:05:00"
+          },
+          "dataset": {
+            "referenceName": "DS_Staging_ERP_Orders",
+            "type": "DatasetReference"
+          },
+          "firstRowOnly": true
+        }
+      },
+      {
+        "name": "ACT_Condition_Has_New_Data",
+        "type": "IfCondition",
+        "dependsOn": [
+          {
+            "activity": "ACT_Check_New_Data",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "typeProperties": {
+          "expression": {
+            "value": "@greater(activity('ACT_Check_New_Data').output.firstRow.NewRecordCount, 0)",
+            "type": "Expression"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "ACT_Incremental_Fact_Load",
+              "type": "SqlServerStoredProcedure",
+              "dependsOn": [],
+              "policy": {
+                "timeout": "01:00:00",
+                "retry": 2,
+                "retryIntervalInSeconds": 30
+              },
+              "typeProperties": {
+                "storedProcedureName": "dbo.sp_load_facts",
+                "storedProcedureParameters": {
+                  "p_load_date": {
+                    "value": "@{formatDateTime(utcNow(), 'yyyy-MM-dd')}",
+                    "type": "String"
+                  },
+                  "p_load_type": {
+                    "value": "incremental",
+                    "type": "String"
+                  }
+                }
+              },
+              "linkedServiceName": {
+                "referenceName": "LS_KPI_DW_SqlServer",
+                "type": "LinkedServiceReference"
+              }
+            },
+            {
+              "name": "ACT_Refresh_KPI_Metrics",
+              "type": "SqlServerStoredProcedure",
+              "dependsOn": [
+                {
+                  "activity": "ACT_Incremental_Fact_Load",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ],
+              "policy": {
+                "timeout": "00:30:00",
+                "retry": 1,
+                "retryIntervalInSeconds": 30
+              },
+              "typeProperties": {
+                "storedProcedureName": "dbo.sp_calculate_kpis",
+                "storedProcedureParameters": {
+                  "p_load_date": {
+                    "value": "@{formatDateTime(utcNow(), 'yyyy-MM-dd')}",
+                    "type": "String"
+                  }
+                }
+              },
+              "linkedServiceName": {
+                "referenceName": "LS_KPI_DW_SqlServer",
+                "type": "LinkedServiceReference"
+              }
+            },
+            {
+              "name": "ACT_Refresh_Materialized_Views",
+              "type": "SqlServerStoredProcedure",
+              "dependsOn": [
+                {
+                  "activity": "ACT_Refresh_KPI_Metrics",
+                  "dependencyConditions": ["Succeeded"]
+                }
+              ],
+              "typeProperties": {
+                "storedProcedureName": "dbo.sp_refresh_all_materialized_views",
+                "storedProcedureParameters": {
+                  "p_force_refresh": {
+                    "value": "0",
+                    "type": "String"
+                  }
+                }
+              },
+              "linkedServiceName": {
+                "referenceName": "LS_KPI_DW_SqlServer",
+                "type": "LinkedServiceReference"
+              }
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "ACT_Log_No_New_Data",
+              "type": "SqlServerStoredProcedure",
+              "dependsOn": [],
+              "typeProperties": {
+                "storedProcedureName": "dbo.sp_log_etl_event",
+                "storedProcedureParameters": {
+                  "p_process_name": {
+                    "value": "PL_Incremental_KPI_Refresh",
+                    "type": "String"
+                  },
+                  "p_status": {
+                    "value": "SKIPPED",
+                    "type": "String"
+                  },
+                  "p_message": {
+                    "value": "No new data found in staging — incremental refresh skipped.",
+                    "type": "String"
+                  }
+                }
+              },
+              "linkedServiceName": {
+                "referenceName": "LS_KPI_DW_SqlServer",
+                "type": "LinkedServiceReference"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "parameters": {
+      "RefreshDate": {
+        "type": "string",
+        "defaultValue": "@formatDateTime(utcNow(), 'yyyy-MM-dd')"
+      }
+    },
+    "annotations": [
+      "Enterprise KPI Platform",
+      "Incremental Refresh",
+      "Hourly"
+    ]
+  },
+  "type": "Microsoft.DataFactory/factories/pipelines"
+}

@@ -1,0 +1,277 @@
+{
+  "name": "PL_Master_ETL_Pipeline",
+  "properties": {
+    "description": "Master ETL pipeline for Enterprise KPI Platform. Orchestrates full data load from source systems to KPI reporting layer.",
+    "activities": [
+      {
+        "name": "ACT_Ingest_ERP_Orders",
+        "type": "Copy",
+        "dependsOn": [],
+        "policy": {
+          "timeout": "02:00:00",
+          "retry": 3,
+          "retryIntervalInSeconds": 60,
+          "secureOutput": false
+        },
+        "typeProperties": {
+          "source": {
+            "type": "SqlServerSource",
+            "sqlReaderQuery": "SELECT * FROM dbo.Orders WHERE ModifiedDate >= '@{pipeline().parameters.LoadDate}'",
+            "queryTimeout": "02:00:00"
+          },
+          "sink": {
+            "type": "SqlServerSink",
+            "writeBehavior": "insert",
+            "sqlWriterStoredProcedureName": "stg.usp_load_erp_orders",
+            "tableOption": "autoCreate"
+          },
+          "enableStaging": false
+        },
+        "inputs": [
+          {
+            "referenceName": "DS_SourceERP_Orders",
+            "type": "DatasetReference"
+          }
+        ],
+        "outputs": [
+          {
+            "referenceName": "DS_Staging_ERP_Orders",
+            "type": "DatasetReference"
+          }
+        ]
+      },
+      {
+        "name": "ACT_Ingest_Salesforce",
+        "type": "Copy",
+        "dependsOn": [],
+        "policy": {
+          "timeout": "02:00:00",
+          "retry": 3,
+          "retryIntervalInSeconds": 60
+        },
+        "typeProperties": {
+          "source": {
+            "type": "SalesforceSource",
+            "query": "SELECT Id, AccountId, Amount, StageName, CloseDate, OwnerId, LastModifiedDate FROM Opportunity WHERE LastModifiedDate >= @{pipeline().parameters.LoadDate}"
+          },
+          "sink": {
+            "type": "SqlServerSink",
+            "writeBehavior": "insert",
+            "sqlWriterStoredProcedureName": "stg.usp_load_salesforce_opportunities"
+          }
+        },
+        "inputs": [
+          {
+            "referenceName": "DS_Salesforce_Opportunity",
+            "type": "DatasetReference"
+          }
+        ],
+        "outputs": [
+          {
+            "referenceName": "DS_Staging_Salesforce",
+            "type": "DatasetReference"
+          }
+        ]
+      },
+      {
+        "name": "ACT_Transform_Staging",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [
+          {
+            "activity": "ACT_Ingest_ERP_Orders",
+            "dependencyConditions": ["Succeeded"]
+          },
+          {
+            "activity": "ACT_Ingest_Salesforce",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "policy": {
+          "timeout": "01:00:00",
+          "retry": 2,
+          "retryIntervalInSeconds": 30
+        },
+        "typeProperties": {
+          "storedProcedureName": "dbo.sp_etl_master_orchestration",
+          "storedProcedureParameters": {
+            "p_load_date": {
+              "value": "@{pipeline().parameters.LoadDate}",
+              "type": "String"
+            },
+            "p_load_type": {
+              "value": "@{pipeline().parameters.LoadType}",
+              "type": "String"
+            }
+          }
+        },
+        "linkedServiceName": {
+          "referenceName": "LS_KPI_DW_SqlServer",
+          "type": "LinkedServiceReference"
+        }
+      },
+      {
+        "name": "ACT_Load_Dimensions",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [
+          {
+            "activity": "ACT_Transform_Staging",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "policy": {
+          "timeout": "01:00:00",
+          "retry": 2,
+          "retryIntervalInSeconds": 30
+        },
+        "typeProperties": {
+          "storedProcedureName": "dbo.sp_load_dimensions",
+          "storedProcedureParameters": {
+            "p_load_date": {
+              "value": "@{pipeline().parameters.LoadDate}",
+              "type": "String"
+            }
+          }
+        },
+        "linkedServiceName": {
+          "referenceName": "LS_KPI_DW_SqlServer",
+          "type": "LinkedServiceReference"
+        }
+      },
+      {
+        "name": "ACT_Load_Facts",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [
+          {
+            "activity": "ACT_Load_Dimensions",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "policy": {
+          "timeout": "02:00:00",
+          "retry": 2,
+          "retryIntervalInSeconds": 30
+        },
+        "typeProperties": {
+          "storedProcedureName": "dbo.sp_load_facts",
+          "storedProcedureParameters": {
+            "p_load_date": {
+              "value": "@{pipeline().parameters.LoadDate}",
+              "type": "String"
+            },
+            "p_load_type": {
+              "value": "@{pipeline().parameters.LoadType}",
+              "type": "String"
+            }
+          }
+        },
+        "linkedServiceName": {
+          "referenceName": "LS_KPI_DW_SqlServer",
+          "type": "LinkedServiceReference"
+        }
+      },
+      {
+        "name": "ACT_Calculate_KPIs",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [
+          {
+            "activity": "ACT_Load_Facts",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "policy": {
+          "timeout": "01:00:00",
+          "retry": 1,
+          "retryIntervalInSeconds": 30
+        },
+        "typeProperties": {
+          "storedProcedureName": "dbo.sp_calculate_kpis",
+          "storedProcedureParameters": {
+            "p_load_date": {
+              "value": "@{pipeline().parameters.LoadDate}",
+              "type": "String"
+            }
+          }
+        },
+        "linkedServiceName": {
+          "referenceName": "LS_KPI_DW_SqlServer",
+          "type": "LinkedServiceReference"
+        }
+      },
+      {
+        "name": "ACT_Data_Quality_Validation",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [
+          {
+            "activity": "ACT_Calculate_KPIs",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "policy": {
+          "timeout": "00:30:00",
+          "retry": 1,
+          "retryIntervalInSeconds": 30
+        },
+        "typeProperties": {
+          "storedProcedureName": "dbo.sp_data_quality_validation",
+          "storedProcedureParameters": {
+            "p_load_date": {
+              "value": "@{pipeline().parameters.LoadDate}",
+              "type": "String"
+            }
+          }
+        },
+        "linkedServiceName": {
+          "referenceName": "LS_KPI_DW_SqlServer",
+          "type": "LinkedServiceReference"
+        }
+      },
+      {
+        "name": "ACT_Pipeline_Success_Notification",
+        "type": "WebActivity",
+        "dependsOn": [
+          {
+            "activity": "ACT_Data_Quality_Validation",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "typeProperties": {
+          "url": "@pipeline().parameters.NotificationWebhookUrl",
+          "method": "POST",
+          "body": {
+            "text": "ETL Pipeline completed successfully for load date: @{pipeline().parameters.LoadDate}",
+            "pipeline": "@{pipeline().Pipeline}",
+            "runId": "@{pipeline().RunId}",
+            "status": "Succeeded"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "LoadDate": {
+        "type": "string",
+        "defaultValue": "@formatDateTime(utcNow(), 'yyyy-MM-dd')"
+      },
+      "LoadType": {
+        "type": "string",
+        "defaultValue": "incremental"
+      },
+      "NotificationWebhookUrl": {
+        "type": "string",
+        "defaultValue": ""
+      }
+    },
+    "variables": {
+      "PipelineStatus": {
+        "type": "String",
+        "defaultValue": "Running"
+      }
+    },
+    "annotations": [
+      "Enterprise KPI Platform",
+      "Master ETL",
+      "Production"
+    ],
+    "lastPublishTime": "2026-06-01T00:00:00Z"
+  },
+  "type": "Microsoft.DataFactory/factories/pipelines"
+}
